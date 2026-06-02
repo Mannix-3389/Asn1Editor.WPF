@@ -1,21 +1,16 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
 using System.Diagnostics;
-using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
-using System.Xml;
-using System.Xml.Serialization;
 using SysadminsLV.Asn1Editor.API;
-using SysadminsLV.Asn1Editor.API.Abstractions;
+using SysadminsLV.Asn1Editor.API.AppStartup;
 using SysadminsLV.Asn1Editor.API.Interfaces;
 using SysadminsLV.Asn1Editor.API.ModelObjects;
 using SysadminsLV.Asn1Editor.API.Utils;
 using SysadminsLV.Asn1Editor.API.Utils.WPF;
 using SysadminsLV.Asn1Editor.API.ViewModel;
-using SysadminsLV.Asn1Editor.Core;
+using SysadminsLV.Asn1Editor.Views;
 using SysadminsLV.Asn1Editor.Views.Windows;
 using Unity;
 using Path = System.IO.Path;
@@ -28,74 +23,57 @@ namespace SysadminsLV.Asn1Editor;
 public partial class App {
     static readonly String _appDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"Sysadmins LV\Asn1Editor");
     static readonly Logger _logger = new(_appDataPath);
-    static readonly XmlSerializer _settingsSerializer = new(typeof(NodeViewOptions));
-
-    readonly NodeViewOptions _options;
+    
+    readonly UserSettings _options;
 
     public App() {
         Dispatcher.UnhandledException += onDispatcherUnhandledException;
-        _options = readSettings();
-        _options.PropertyChanged += onOptionsChanged;
+        var optionsStorage = new UserSettingsStorage(_appDataPath);
+        _options = optionsStorage.Load();
+        _options.PropertyChanged += (s, _) => optionsStorage.Save((UserSettings)s);
     }
 
+    public static String AppDataPath => _appDataPath;
     public static IUnityContainer Container { get; private set; }
 
     static void onDispatcherUnhandledException(Object s, DispatcherUnhandledExceptionEventArgs e) {
         _logger.Write(e.Exception);
+        Splasher.CloseSplashScreen();
     }
+
     public static void Write(Exception e) {
         _logger.Write(e);
     }
     public static void Write(String s) {
         _logger.Write(s);
     }
-    protected override void OnStartup(StartupEventArgs e) {
+    async protected override void OnStartup(StartupEventArgs e) {
+        base.OnStartup(e);
+        logStartupHeader();
+        configureUnity();
+        
+        Splasher.SplashScreen = Container.Resolve<SplashWindow>();
+        Splasher.MainWindow = Container.Resolve<MainWindow>();
+        Splasher.ShowSplashScreen();
+
+        await new StartupPipeline()
+            .Add(new InfrastructureStartupTask(Container.Resolve<IOidDbManager>()))
+            .Add(new SessionRecoveryStartupTask(Container.Resolve<IUIMessenger>(), Container.Resolve<IMainWindowVM>()))
+            .Add(new CliArgumentsStartupTask(Container.Resolve<IMainWindowVM>(), e.Args))
+            .RunAsync(Container.Resolve<ISplashScreenVM>());
+        Splasher.ShowMainWindow();
+    }
+    static void logStartupHeader() {
         _logger.Write("******************************** Started ********************************");
         _logger.Write($"Process: {Process.GetCurrentProcess().ProcessName}");
         _logger.Write($"PID    : {Process.GetCurrentProcess().Id}");
         _logger.Write($"Version: {Assembly.GetExecutingAssembly().GetName().Version}");
         _logger.Write("*************************************************************************");
-        configureUnity();
-        IOidDbManager oidMgr = Container.Resolve<IOidDbManager>();
-        oidMgr.ReloadLookup();
-        OidServices.Resolver = new OidResolverWrapper();
-        parseArguments(e.Args);
-        base.OnStartup(e);
-        Container.Resolve<MainWindow>().Show();
     }
+
     protected override void OnExit(ExitEventArgs e) {
         _logger.Dispose();
         base.OnExit(e);
-    }
-    async void parseArguments(IReadOnlyList<String> args) {
-        for (Int32 i = 0; i < args.Count;) {
-            switch (args[i].ToLower()) {
-                case "-path":  // open from a file
-                    i++;
-                    if (args.Count <= i) {
-                        throw new ArgumentException(args[i]);
-                    }
-                    await Container.Resolve<IMainWindowVM>().OpenExistingAsync(args[i]);
-                    return;
-                case "-raw":  // base64 raw string
-                    i++;
-                    if (args.Count <= i) {
-                        throw new ArgumentException(args[i]);
-                    }
-                    await Container.Resolve<IMainWindowVM>().OpenRawAsync(args[i]);
-                    return;
-                default:
-                    await Container.Resolve<IMainWindowVM>().OpenExistingAsync(args[i]);
-                    // use the code below when CLI interface is implemented
-                    /*if (File.Exists(args[i])) {
-                        await Container.Resolve<IMainWindowVM>().OpenExistingAsync(args[i]);
-                    } else {
-                        Trace.WriteLine($"Unknown parameter '{args[i]}'");
-                        Shutdown(2);
-                    }*/
-                    return;
-            }
-        }
     }
     void configureUnity() {
         Container = new UnityContainer();
@@ -105,34 +83,16 @@ public partial class App {
             .RegisterType<IAsnValueEditorWindow, AsnValueEditorWindow>()
             .RegisterType<IUIMessenger, UIMessenger>()
             // view models
-            .RegisterSingleton<MainWindowVM>()
-            .RegisterType<IMainWindowVM, MainWindowVM>()
-            .RegisterType<IHasAsnDocumentTabs, MainWindowVM>()
+            .RegisterSingleton<ISplashScreenVM, SplashScreenVM>()
+            .RegisterSingleton<IMainWindowVM, MainWindowVM>()
+            .RegisterSingleton<AsnDocumentHostManager>()
+            .RegisterType<IHasAsnDocumentTabs, AsnDocumentHostManager>()
+            .RegisterSingleton<IOidDbManager, OidDbManager>()
             .RegisterType<ITextViewerVM, TextViewerVM>()
             .RegisterType<IAsnValueEditorVM, AsnValueEditorVM>()
             .RegisterType<IOidEditorVM, OidEditorVM>()
             .RegisterType<INewAsnNodeEditorVM, NewAsnNodeEditorVM>()
+            .RegisterType<ITreeCommands, TreeViewCommands>()
             .RegisterInstance(_options);
-        var oidMgr = new OidDbManager(Container.Resolve<IUIMessenger>()) {
-            OidLookupLocations = [Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!, _appDataPath]
-        };
-        Container.RegisterInstance<IOidDbManager>(oidMgr);
-    }
-    static void onOptionsChanged(Object s, PropertyChangedEventArgs e) {
-        using var sw = new StreamWriter(Path.Combine(_appDataPath, "user.config"), false);
-        using var xw = XmlWriter.Create(sw);
-        _settingsSerializer.Serialize(xw, s);
-    }
-    static NodeViewOptions readSettings() {
-        if (File.Exists(Path.Combine(_appDataPath, "user.config"))) {
-            try {
-                using var sr = new StreamReader(Path.Combine(_appDataPath, "user.config"));
-                return (NodeViewOptions)_settingsSerializer.Deserialize(sr);
-            } catch {
-                return new NodeViewOptions();
-            }
-        }
-
-        return new NodeViewOptions();
     }
 }

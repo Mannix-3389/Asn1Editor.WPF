@@ -11,11 +11,12 @@ using SysadminsLV.Asn1Editor.Core.Tree;
 namespace SysadminsLV.Asn1Editor.API.ViewModel;
 
 public class Asn1DocumentVM : AsyncViewModel {
-    String fileName;
+    String? fileName;
     Boolean suppressModified;
 
-    public Asn1DocumentVM(NodeViewOptions nodeViewOptions, ITreeCommands treeCommands) {
-        AsnDocContext = new Asn1DocumentContext(nodeViewOptions);
+    public Asn1DocumentVM(UserSettings userSettings, ITreeCommands treeCommands) {
+        ID = Guid.NewGuid().ToString("N");
+        AsnDocContext = new Asn1DocumentContext(userSettings);
         AsnDocContext.CollectionChanged += onAsnDocContextCollectionChanged;
         TreeCommands = treeCommands;
     }
@@ -26,9 +27,10 @@ public class Asn1DocumentVM : AsyncViewModel {
         }
     }
 
+    public String ID { get; set; }
     public IAsn1DocumentContext AsnDocContext { get; }
     public ITreeCommands TreeCommands { get; }
-    public NodeViewOptions NodeViewOptions => AsnDocContext.NodeViewOptions;
+    public UserSettings UserSettings => AsnDocContext.UserSettings;
     public ReadOnlyObservableCollection<AsnTreeNode> Tree => AsnDocContext.Tree;
 
     /// <summary>
@@ -56,12 +58,12 @@ public class Asn1DocumentVM : AsyncViewModel {
             return "untitled";
         }
     }
-    public String Path {
+    public String? Path {
         get;
         set {
             field = value;
             if (!String.IsNullOrWhiteSpace(field)) {
-                fileName = new FileInfo(field).Name;
+                fileName = new FileInfo(field!).Name;
             }
 
             OnPropertyChanged();
@@ -72,9 +74,11 @@ public class Asn1DocumentVM : AsyncViewModel {
     public Boolean IsModified {
         get;
         set {
-            field = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(Header));
+            if (field != value) {
+                field = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(Header));
+            }
         }
     }
     public String ProgressText {
@@ -83,7 +87,7 @@ public class Asn1DocumentVM : AsyncViewModel {
             field = value;
             OnPropertyChanged();
         }
-    }
+    } = String.Empty;
     public Boolean IsEnabled {
         get;
         set {

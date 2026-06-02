@@ -10,9 +10,9 @@ using SysadminsLV.WPF.OfficeTheme.Toolkit.Commands;
 namespace SysadminsLV.Asn1Editor.API.ModelObjects;
 
 [XmlRoot("appSettings")]
-public class NodeViewOptions : ViewModelBase, INodeViewOptions {
+public class UserSettings : ViewModelBase, INodeViewOptions {
 
-    public NodeViewOptions() {
+    public UserSettings() {
         TagView.PropertyChanged += OnTagViewPropertyChanged;
         HexViewer.PropertyChanged += OnHexViewerPropertyChanged;
     }
@@ -179,6 +179,24 @@ public class NodeViewOptions : ViewModelBase, INodeViewOptions {
             OnPropertyChanged();
         }
     } = new();
+
+    [XmlElement("sessionRecovery")]
+    public SessionRecoveryOptions SessionRecovery {
+        get;
+        set {
+            if (field is not null) {
+                field.PropertyChanged -= OnSessionRecoveryPropertyChanged;
+            }
+            field = value;
+            if (field is not null) {
+                field.PropertyChanged += OnSessionRecoveryPropertyChanged;
+            }
+            OnPropertyChanged();
+        }
+    } = new();
+    void OnSessionRecoveryPropertyChanged(Object sender, PropertyChangedEventArgs e) {
+        OnPropertyChanged(nameof(SessionRecovery));
+    }
 
     void OnTagViewPropertyChanged(Object sender, PropertyChangedEventArgs args) {
         OnPropertyChanged(nameof(TagView));
@@ -407,8 +425,31 @@ public class AsnIntegerViewOptions : ViewModelBase, IAsnIntegerViewOptions {
     }
 }
 
+public class SessionRecoveryOptions : ViewModelBase {
+    [XmlElement("enableAutomaticRecovery")]
+    public Boolean EnableAutomaticRecovery {
+        get;
+        set {
+            if (value != field) {
+                field = value;
+                OnPropertyChanged();
+            }
+        }
+    } = true;
+    [XmlElement("backupIntervalInSeconds")]
+    public Int32 BackupIntervalInSeconds {
+        get;
+        set {
+            if (value != field) {
+                field = value;
+                OnPropertyChanged();
+            }
+        }
+    } = 60;
+}
+
 /// <summary>
-/// Provides data for the <see cref="NodeViewOptions.RequireTreeRefresh"/> event, which is triggered
+/// Provides data for the <see cref="UserSettings.RequireTreeRefresh"/> event, which is triggered
 /// when a tree refresh is required. This class encapsulates a filter function that determines
 /// which nodes in the tree should be affected by the refresh operation.
 /// </summary>

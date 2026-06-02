@@ -2,7 +2,6 @@
 using System.Globalization;
 using System.IO;
 using System.Windows.Input;
-using SysadminsLV.Asn1Editor.API.Abstractions;
 using SysadminsLV.Asn1Editor.API.Interfaces;
 using SysadminsLV.Asn1Editor.API.ModelObjects;
 using SysadminsLV.Asn1Editor.Core.AsnFormatters;
@@ -24,9 +23,9 @@ class TextViewerVM : ViewModelBase, ITextViewerVM {
     Int32 currentLength = 80;
     String currentLengthStr = "80";
 
-    public TextViewerVM(IHasAsnDocumentTabs appTabs, NodeViewOptions options, IUIMessenger uiMessenger) {
+    public TextViewerVM(IHasAsnDocumentTabs appTabs, UserSettings options, IUIMessenger uiMessenger) {
         rootNode = appTabs.SelectedTab!.GetPrimaryDocument().AsnDocContext.SelectedNode!;
-        NodeViewOptions = options;
+        UserSettings = options;
         _uiMessenger = uiMessenger;
         CurrentLength = defaultLength.ToString(CultureInfo.InvariantCulture);
         SaveCommand = new RelayCommand(saveFile);
@@ -39,7 +38,7 @@ class TextViewerVM : ViewModelBase, ITextViewerVM {
     public ICommand PrintCommand { get; set; }
     public ICommand ApplyCommand { get; }
 
-    public NodeViewOptions NodeViewOptions { get; }
+    public UserSettings UserSettings { get; }
 
     public String Text {
         get => text;
@@ -89,7 +88,7 @@ class TextViewerVM : ViewModelBase, ITextViewerVM {
     }
 
     void print(Object obj) {
-        StaticCommands.Print(Text, NodeViewOptions.FontSize);
+        StaticCommands.Print(Text, UserSettings.FontSize);
     }
     void applyNewLength(Object obj) {
         if (!Int32.TryParse(CurrentLength, NumberStyles.Integer, null, out Int32 value)) {

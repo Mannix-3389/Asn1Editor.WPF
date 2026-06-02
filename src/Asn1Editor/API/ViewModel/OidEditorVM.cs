@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Data;
 using System.Windows.Input;
-using SysadminsLV.Asn1Editor.API.Abstractions;
+using SysadminsLV.Asn1Editor.API.Interfaces;
 using SysadminsLV.Asn1Editor.API.ModelObjects;
 using SysadminsLV.Asn1Parser;
 using SysadminsLV.WPF.OfficeTheme.Toolkit.Commands;
@@ -23,7 +23,7 @@ class OidEditorVM : ViewModelBase, IOidEditorVM {
     OidDto? selectedItem;
     OidSearchScope searchScope;
 
-    public OidEditorVM(IHasAsnDocumentTabs tabs, IOidDbManager oidMgr) {
+    public OidEditorVM(IHasAsnDocumentTabs tabs, IOidDbManager oidMgr, UserSettings userSettings) {
         _tabs = tabs;
         _oidMgr = oidMgr;
         ReloadCommand = new RelayCommand(reload);
@@ -37,7 +37,7 @@ class OidEditorVM : ViewModelBase, IOidEditorVM {
         OidView.Filter = filterOidList;
 
         SearchScope = OidSearchScope.UserDefined;
-        NodeViewOptions = tabs.NodeViewOptions;
+        UserSettings = userSettings;
     }
     Boolean filterOidList(Object obj) {
         if (obj is not OidDto entry) {
@@ -68,7 +68,7 @@ class OidEditorVM : ViewModelBase, IOidEditorVM {
     public IAsyncCommand RemoveOidCommand { get; }
     public ICommand ResetCommand { get; }
     public ICommand CloseCommand { get; }
-    public NodeViewOptions NodeViewOptions { get; }
+    public UserSettings UserSettings { get; }
 
     public ICollectionView OidView { get; }
 

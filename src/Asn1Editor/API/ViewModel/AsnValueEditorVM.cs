@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Linq;
 using System.Windows.Input;
-using SysadminsLV.Asn1Editor.API.Abstractions;
 using SysadminsLV.Asn1Editor.API.Interfaces;
 using SysadminsLV.Asn1Editor.API.ModelObjects;
 using SysadminsLV.Asn1Editor.API.Utils;
@@ -17,10 +16,10 @@ class AsnValueEditorVM : ViewModelBase, IAsnValueEditorVM {
     readonly IUIMessenger _uiMessenger;
     readonly IAsn1DocumentContext _data;
 
-    public AsnValueEditorVM(IHasAsnDocumentTabs appTabs, IUIMessenger uiMessenger) {
+    public AsnValueEditorVM(IHasAsnDocumentTabs appTabs, IUIMessenger uiMessenger, UserSettings userSettings) {
         _data = appTabs.SelectedTab!.GetPrimaryDocument().AsnDocContext;
         _uiMessenger = uiMessenger;
-        NodeViewOptions = appTabs.NodeViewOptions;
+        UserSettings = userSettings;
         OkCommand = new RelayCommand(submitValues, canSubmit);
         CloseCommand = new RelayCommand(close);
         TagDetails = String.Empty;
@@ -28,7 +27,7 @@ class AsnValueEditorVM : ViewModelBase, IAsnValueEditorVM {
 
     public ICommand OkCommand { get; }
     public ICommand CloseCommand { get; }
-    public NodeViewOptions NodeViewOptions { get; }
+    public UserSettings UserSettings { get; }
     public AsnTreeNode Node => _data.SelectedNode!;
 
     /// <summary>

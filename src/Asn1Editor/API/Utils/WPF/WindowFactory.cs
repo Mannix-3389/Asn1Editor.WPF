@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using SysadminsLV.Asn1Editor.API.Abstractions;
 using SysadminsLV.Asn1Editor.API.Interfaces;
 using SysadminsLV.Asn1Editor.API.ModelObjects;
 using SysadminsLV.Asn1Editor.API.ViewModel;
@@ -43,7 +42,7 @@ class WindowFactory : WindowFactoryBase, IWindowFactory {
         }
         binConverterWindowClosed = false;
         hwnd = binConverterWindow = new BinaryConverterWindow();
-        var options = App.Container.Resolve<NodeViewOptions>();
+        var options = App.Container.Resolve<UserSettings>();
         var binConverterVM = new BinaryConverterVM(GetUIMessenger(), options, action);
         hwnd.DataContext = binConverterVM;
         binConverterVM.SetBytes(data);

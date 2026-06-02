@@ -1,52 +1,54 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
-using SysadminsLV.Asn1Editor.API.Abstractions;
 using SysadminsLV.Asn1Editor.API.Interfaces;
 using SysadminsLV.Asn1Editor.API.ModelObjects;
+using SysadminsLV.Asn1Editor.API.SessionState;
 using SysadminsLV.Asn1Editor.API.Utils;
-using SysadminsLV.Asn1Editor.Core.Tree;
-using SysadminsLV.Asn1Parser;
-using SysadminsLV.WPF.OfficeTheme.Controls;
+using SysadminsLV.Asn1Editor.API.Utils.WPF;
 using SysadminsLV.WPF.OfficeTheme.Toolkit.Commands;
 
 namespace SysadminsLV.Asn1Editor.API.ViewModel;
 
-class MainWindowVM : ViewModelBase, IMainWindowVM, IHasAsnDocumentTabs {
+class MainWindowVM : ViewModelBase, IMainWindowVM {
     readonly IWindowFactory _windowFactory;
     readonly IUIMessenger _uiMessenger;
+    readonly AsnDocumentFileService _documentFileService;
+    readonly SessionDocumentSource _sessionDocumentSource;
 
     public MainWindowVM(
         IWindowFactory windowFactory,
         IAppCommands appCommands,
-        NodeViewOptions nodeViewOptions) {
+        AsnDocumentHostManager documentHostManager,
+        ITreeCommands treeCommands,
+        UserSettings userSettings) {
+        UserSettings = userSettings;
+        DocumentHostManager = documentHostManager;
+        TreeCommands = treeCommands;
         _windowFactory = windowFactory;
         _uiMessenger = windowFactory.GetUIMessenger();
+        _documentFileService = new AsnDocumentFileService(_uiMessenger, DocumentHostManager, TreeCommands);
         GlobalData = new GlobalData();
         AppCommands = appCommands;
-        TreeCommands = new TreeViewCommands(windowFactory, this);
-        NodeViewOptions = nodeViewOptions;
-        NodeViewOptions.RequireTreeRefresh += onNodeViewOptionsChanged;
-        NewCommand = new RelayCommand(newTab);
-        CloseTabCommand = new RelayCommand(closeTab, canCloseTab);
-        CloseAllTabsCommand = new RelayCommand(closeAllTabs);
-        CloseAllButThisTabCommand = new RelayCommand(closeAllButThisTab, canCloseAllButThisTab);
-        OpenCommand = new AsyncCommand(openFileAsync);
-        SaveCommand = new RelayCommand(saveFile, canPrintSave);
-        ReloadDocumentCommand = new AsyncCommand(reloadDocumentAsync);
-        DropFileCommand = new AsyncCommand(dropFileAsync);
+        
+        NewCommand = new RelayCommand(_ => DocumentHostManager.AddNewTab(TreeCommands));
+        OpenCommand = new AsyncCommand((_, _) => _documentFileService.OpenFileAsync());
+        SaveCommand = new RelayCommand(o => _documentFileService.SaveFile(o as String), canPrintSave);
+        ReloadDocumentCommand = new AsyncCommand((_, _) => _documentFileService.ReloadActiveDocumentAsync());
+        DropFileCommand = new AsyncCommand((o, _) => _documentFileService.DropFileAsync(o as String));
         appCommands.ShowConverterWindow = new RelayCommand(showConverter);
-        addTabToList(new AsnDocumentHostVM(NodeViewOptions, TreeCommands));
+        _sessionDocumentSource = new SessionDocumentSource(DocumentHostManager, UserSettings);
+        DocumentHostManager.AddTab(new AsnDocumentHostVM(UserSettings, TreeCommands));
+
+        CloseTabCommand = new RelayCommand(closeTab, canCloseTab);
+        CloseAllTabsCommand = new RelayCommand(_ => CloseAllTabs());
+        CloseAllButThisTabCommand = new RelayCommand(closeAllButThis, canCloseAllButThisTab);
     }
 
-    async void onNodeViewOptionsChanged(Object sender, RequireTreeRefreshEventArgs args) {
-        await RefreshTabs(args.Filter);
-    }
+    
 
     public ICommand NewCommand { get; }
     public ICommand CloseTabCommand { get; }
@@ -58,298 +60,132 @@ class MainWindowVM : ViewModelBase, IMainWindowVM, IHasAsnDocumentTabs {
     public ICommand PrintCommand { get; }
     public ICommand SettingsCommand { get; }
     public IAsyncCommand DropFileCommand { get; }
-
+    
     public IAppCommands AppCommands { get; }
     public ITreeCommands TreeCommands { get; }
 
     public GlobalData GlobalData { get; }
-    public NodeViewOptions NodeViewOptions { get; }
-    public ObservableCollection<AsnDocumentHostVM> Tabs { get; } = [];
-    public AsnDocumentHostVM? SelectedTab {
-        get;
-        set {
-            field = value;
-            OnPropertyChanged();
-        }
-    }
+    public UserSettings UserSettings { get; }
+    public AsnDocumentHostManager DocumentHostManager { get; }
+    public AsnDocumentHostVM? SelectedTab => DocumentHostManager.SelectedTab;
 
     /// <summary>
     /// Shows Binary Converter dialog and renders converted ASN data if requested.
     /// </summary>
     /// <param name="o"></param>
     void showConverter(Object o) {
-        if (SelectedTab is null) {
-            _windowFactory.ShowConverterWindow([], openRawAsync);
+        if (DocumentHostManager.SelectedTab is null) {
+            _windowFactory.ShowConverterWindow([], _documentFileService.OpenRawAsync);
         } else {
-            _windowFactory.ShowConverterWindow(SelectedTab.GetPrimaryDocument().AsnDocContext.RawData, openRawAsync);
+            _windowFactory.ShowConverterWindow(DocumentHostManager.SelectedTab.GetPrimaryDocument().AsnDocContext.RawData, _documentFileService.OpenRawAsync);
         }
     }
-    void newTab(Object o) {
-        var tab = new AsnDocumentHostVM(NodeViewOptions, TreeCommands);
-        addTabToList(tab);
-    }
-    /// <summary>
-    /// Adds tab specified by <strong>tab</strong> parameter to <see cref="Tabs"/> list and optionally makes it
-    /// active (sets to <see cref="SelectedTab"/> property).
-    /// </summary>
-    /// <param name="tab">Tab document to add.</param>
-    void addTabToList(AsnDocumentHostVM tab) {
-        Tabs.Add(tab);
-        SelectedTab = tab;
-    }
-    /// <summary>
-    /// Returns a blank tab instance. Either, it is a current value of <see cref="SelectedTab"/> property
-    /// or new tab document instance.
-    /// </summary>
-    /// <param name="isNew">
-    ///     Specifies if method created new tab document instance. This parameter can be used to determine if
-    ///     created tab can be closed should decode fail.
-    /// </param>
-    /// <returns>Blank tab document instance.</returns>
-    AsnDocumentHostVM getAvailableTab(out Boolean isNew) {
-        isNew = false;
-        Boolean useExistingTab = SelectedTab is not null && SelectedTab.GetPrimaryDocument().CanReuse;
-        if (useExistingTab && Tabs.Any()) {
-            return SelectedTab;
-        }
-
-        isNew = true;
-        var tab = new AsnDocumentHostVM(NodeViewOptions, TreeCommands);
-        addTabToList(tab);
-
-        return tab;
-    }
-    /// <summary>
-    /// Creates tab document from file.
-    /// </summary>
-    /// <param name="file">Path to a file that contains valid ASN.1-encoded data.</param>
-    /// <returns>Awaitable task.</returns>
-    /// <remarks>If new tab was created, but file decoding fails, this temporary tab document will be closed.</remarks>
-    async Task createTabFromFile(String file) {
-        var tab = getAvailableTab(out Boolean useExistingTab);
-        var doc = tab.GetPrimaryDocument();
-        doc.Path = file;
-        try {
-            IEnumerable<Byte> bytes = await FileUtility.FileToBinaryAsync(file);
-            await doc.Decode(bytes, true);
-        } catch (Exception ex) {
-            _uiMessenger.ShowError(ex.Message, "Read Error");
-            if (!useExistingTab) {
-                removeTab(tab);
-            }
-        }
-    }
-
-    async Task reloadDocumentAsync(Object o, CancellationToken ct) {
-        if (SelectedTab is null) {
-            return;
-        }
-        var doc = SelectedTab.GetPrimaryDocument();
-        if (String.IsNullOrEmpty(doc.Path)) {
-            return;
-        }
-        // if document is modified, ask user for confirmation to reload and lose unsaved changes.
-        if (doc.IsModified) {
-            Boolean confirmResult = _uiMessenger.YesNo("Reloading will discard all unsaved changes. Do you want to continue?", "Confirm Reload");
-            if (!confirmResult) {
-                return;
-            }
-        }
-
-        try {
-            doc.Reset();
-            IEnumerable<Byte> bytes = await FileUtility.FileToBinaryAsync(doc.Path);
-            await doc.Decode(bytes, true);
-        } catch (Exception ex) {
-            _uiMessenger.ShowError(ex.Message, "Reload Error");
-        }
-    }
-
-    #region Read content to tab
-    Task openFileAsync(Object obj, CancellationToken token = default) {
-        _uiMessenger.TryGetOpenFileName(out String filePath);
-        if (String.IsNullOrWhiteSpace(filePath)) {
-            return Task.CompletedTask;
-        }
-
-        return createTabFromFile(filePath);
-    }
-    #endregion
 
     #region Write tab to file
-    // 'o' parameter can receive:
-    // null - use current tab with default name
-    // 1    - use current tab with custom name
-    // 2    - save all tabs with default name.
-    void saveFile(Object? obj) {
-        if (obj is null) {
-            writeFile(SelectedTab);
-        } else {
-            switch (obj.ToString()) {
-                case "1": {
-                        if (getSaveFilePath(out String filePath)) {
-                            writeFile(SelectedTab, filePath);
-                        }
-
-                        break;
-                    }
-                case "2":
-                    // do something with save all tabs
-                    break;
-            }
-        }
-    }
     Boolean canPrintSave(Object obj) {
-        return SelectedTab?.Left.AsnDocContext.RawData.Count > 0;
+        return DocumentHostManager.SelectedTab?.Left.AsnDocContext.RawData.Count > 0;
     }
 
-    // general method to write arbitrary tab to a file.
-    Boolean writeFile(AsnDocumentHostVM tab, String? filePath = null) {
-        Asn1DocumentVM doc = tab.GetPrimaryDocument();
-        // use default path if no custom file path specified
-        filePath ??= doc.Path;
-        // if file path is still null, then it came from "untitled" tab with default file path
-        // so prompt for file to save and abort if cancelled.
-        if (String.IsNullOrEmpty(filePath) && !getSaveFilePath(out filePath)) {
-            return false;
-        }
-        try {
-            File.WriteAllBytes(filePath, doc.AsnDocContext.RawData.ToArray());
-            doc.Path = filePath;
-            doc.IsModified = false;
-
-            return true;
-        } catch (Exception e) {
-            _uiMessenger.ShowError(e.Message, "Save Error");
-        }
-        return false;
-    }
-    Boolean getSaveFilePath(out String saveFilePath) {
-        return _uiMessenger.TryGetSaveFileName(out saveFilePath);
-    }
-
-    public Boolean RequestFileSave(AsnDocumentHostVM tab) {
+    Boolean requestFileSave(AsnDocumentHostVM tab) {
         Boolean? result = _uiMessenger.YesNoCancel("Current file was modified. Save changes?", "Unsaved Data");
         return result switch {
             false => true,
-            true => writeFile(tab),
+            true => _documentFileService.WriteFile(tab),
             _ => false
         };
     }
     #endregion
 
-    #region Close Tab(s)
-
-    void removeTab(AsnDocumentHostVM tab) {
-        // unlock Right ASN.1 document if in compare mode
-        tab.Right?.IsEnabled = true;
-        Tabs.Remove(tab);
-    }
+    #region Close Tab(s)/ Shutdown
 
     void closeTab(Object? o) {
-        if (o is null) {
-            closeTab(SelectedTab);
-        } else if (o is ClosableTabItem tabItem) { // TODO: need to eliminate explicit reference to UI elements
-            var vm = (AsnDocumentHostVM)tabItem.Content;
-            closeTab(vm);
-        }
+        DocumentHostManager.CloseTab(o as AsnDocumentHostVM ?? DocumentHostManager.SelectedTab, requestFileSave);
     }
+    void closeAllButThis(Object o) {
+        DocumentHostManager.CloseTabsWithPreservation(requestFileSave, o as AsnDocumentHostVM ?? DocumentHostManager.SelectedTab);
+    }
+    public Boolean CloseAllTabs() {
+        return DocumentHostManager.CloseTabsWithPreservation(requestFileSave);
+    }
+
     Boolean canCloseTab(Object? o) {
-        // TODO: need to eliminate explicit reference to UI elements
-        return o is null or ClosableTabItem;
-    }
-    void closeAllTabs(Object? o) {
-        CloseAllTabs();
-    }
-    void closeAllButThisTab(Object? o) {
-        if (o is null) {
-            closeTabsWithPreservation(SelectedTab);
-        } else if (o is ClosableTabItem tabItem) { // TODO: need to eliminate explicit reference to UI elements
-            var vm = (AsnDocumentHostVM)tabItem.Content;
-            closeTabsWithPreservation(vm);
-        }
+        return o is AsnDocumentHostVM or null;
     }
     Boolean canCloseAllButThisTab(Object? o) {
-        if (Tabs.Count == 0) {
+        if (DocumentHostManager.Tabs.Count == 0) {
             return false;
         }
         if (o is null) {
-            return SelectedTab is not null;
+            return DocumentHostManager.SelectedTab is not null;
         }
 
         return true;
     }
 
-    void closeTab(AsnDocumentHostVM tab) {
-        Asn1DocumentVM doc = tab.GetPrimaryDocument();
-        if (!doc.IsModified) {
-            removeTab(tab);
-        }
-        if (doc.IsModified && RequestFileSave(tab)) {
-            removeTab(tab);
-        }
-    }
-    Boolean closeTabsWithPreservation(AsnDocumentHostVM? preservedTab = null) {
-        // loop over a copy of tabs since we are going to update source collection in a loop
-        var tabs = Tabs.ToList();
-        foreach (AsnDocumentHostVM tab in tabs) {
-            Asn1DocumentVM doc = tab.GetPrimaryDocument();
-            if (preservedTab is not null && Equals(tab, preservedTab)) {
-                continue;
-            }
-            if (!doc.IsModified) {
-                removeTab(tab);
-
-                continue;
-            }
-            SelectedTab = tab;
-            if (!RequestFileSave(tab)) {
-                return false;
-            }
-            removeTab(tab);
-        }
-
-        return true;
-    }
-    public Boolean CloseAllTabs() {
-        return closeTabsWithPreservation();
+    /// <inheritdoc />
+    public void Shutdown() {
+        _sessionDocumentSource.Shutdown();
     }
 
     #endregion
 
-    Task dropFileAsync(Object o, CancellationToken token = default) {
-        if (o is not String filePath || !File.Exists(filePath)) {
-            return Task.CompletedTask;
-        }
-
-        return createTabFromFile(filePath);
-    }
     public Task OpenExistingAsync(String filePath) {
-        return createTabFromFile(filePath);
+        return _documentFileService.OpenExistingAsync(filePath);
     }
     public async Task OpenRawAsync(String base64String) {
         try {
-            await openRawAsync(Convert.FromBase64String(base64String));
+            await _documentFileService.OpenRawAsync(Convert.FromBase64String(base64String));
         } catch (Exception ex) {
             _uiMessenger.ShowError(ex.Message, "Read Error");
         }
     }
-    Task openRawAsync(Byte[] rawBytes) {
-        var asn = new Asn1Reader(rawBytes);
-        try {
-            asn.BuildOffsetMap();
-            // at this point, raw data is granted to be valid DER encoding and should not fail.
-            var tab = getAvailableTab(out _);
 
-            return tab.GetPrimaryDocument().Decode(rawBytes, false);
-        } catch (Exception ex) {
-            _uiMessenger.ShowError(ex.Message, "Read Error");
-
-            return Task.CompletedTask;
+    public async Task RestoreSessionAsync(SessionRecoveryDto recoveryData) {
+        if (recoveryData.Tabs.Count > 0) {
+            DocumentHostManager.Clear();
         }
-    }
+        var compareDictionary = new Dictionary<String, AsnDocumentHostVM>();
+        foreach (SessionTabRecoveryDto recoveryTab in recoveryData.Tabs) {
+            var tab = new AsnDocumentHostVM(UserSettings, TreeCommands);
+            Asn1DocumentVM doc = tab.GetPrimaryDocument();
+            if (recoveryTab.RecoveryData is not null) {
+                try {
+                    await doc.Decode(recoveryTab.RecoveryData, false);
+                } catch (Exception ex) {
+                    App.Write(ex);
+                    _uiMessenger.ShowError($"Failed to restore session tab with source path '{recoveryTab.SourcePath}'. Error: {ex.Message}", "Session Restore Warning");
+                    continue;
+                }
+            } else if (!String.IsNullOrEmpty(recoveryTab.SourcePath) && File.Exists(recoveryTab.SourcePath)) {
+                try {
+                    IEnumerable<Byte> bytes = await FileUtility.FileToBinaryAsync(recoveryTab.SourcePath!);
+                    await doc.Decode(bytes, true);
+                } catch (Exception ex) {
+                    App.Write(ex);
+                    _uiMessenger.ShowError($"Failed to restore session tab with source path '{recoveryTab.SourcePath}'. Error: {ex.Message}", "Session Restore Warning");
+                    continue;
+                }
+            } else {
+                // if there is no recovery data and source path is invalid, skip restoring this tab.
+                // normally, you don't hit this branch it may happen if the recovery data is corrupted, edited manually.
+                continue;
+            }
 
-    public Task RefreshTabs(Func<AsnTreeNode, Boolean>? filter = null) {
-        return Task.WhenAll(Tabs.Select(x => x.GetPrimaryDocument().RefreshTreeView(filter)));
+            doc.ID = recoveryTab.ID;
+            doc.Path = recoveryTab.SourcePath;
+            DocumentHostManager.AddTab(tab);
+            compareDictionary[recoveryTab.ID] = tab;
+        }
+
+        foreach (SessionTabRecoveryDto recoveryTab in recoveryData.Tabs.Where(x => x.CompareID is not null)) {
+            if (compareDictionary.TryGetValue(recoveryTab.CompareID!, out AsnDocumentHostVM compareTab)) {
+                AsnDocumentHostVM left = compareDictionary[recoveryTab.ID];
+                var tabParam = new TabCompareParam(left, compareTab);
+                left.StartCompareModeCommand.Execute(tabParam);
+            }
+        }
+        if (recoveryData.SelectedTabID is not null) {
+            DocumentHostManager.SelectedTab = DocumentHostManager.Tabs.FirstOrDefault(x => x.GetPrimaryDocument().ID == recoveryData.SelectedTabID);
+        }
     }
 }

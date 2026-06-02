@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
-using SysadminsLV.Asn1Editor.API.Abstractions;
+using SysadminsLV.Asn1Editor.API.Interfaces;
 using SysadminsLV.Asn1Editor.API.ModelObjects;
 using SysadminsLV.Asn1Editor.Core;
 
@@ -13,11 +13,12 @@ namespace SysadminsLV.Asn1Editor.API;
 interface IOidDbManager {
     void ReloadLookup();
     Task<Boolean> SaveUserLookup();
+    String[] OidLookupLocations { set; }
 }
 class OidDbManager(IUIMessenger uiMessenger) : IOidDbManager {
 
     const String oidFileName = "OID.txt";
-    public String[] OidLookupLocations { get; init; } = [];
+    public String[] OidLookupLocations { get; set; } = [];
 
     public void ReloadLookup() {
         OidResolver.Reset();

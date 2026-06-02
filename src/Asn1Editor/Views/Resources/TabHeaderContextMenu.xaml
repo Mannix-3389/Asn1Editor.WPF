@@ -9,7 +9,7 @@
         <Setter Property="Command">
             <Setter.Value>
                 <Binding RelativeSource="{RelativeSource AncestorType=ContextMenu}"
-                         Path="PlacementTarget.Tag.SelectedTab.StartCompareModeCommand"/>
+                         Path="PlacementTarget.Tag.DocumentHostManager.SelectedTab.StartCompareModeCommand"/>
             </Setter.Value>
         </Setter>
 
@@ -40,16 +40,17 @@
         </MenuItem>
         <Separator/>
         <MenuItem Header="Compare with..."
-                  ItemsSource="{Binding Tabs}"
+                  ItemsSource="{Binding DocumentHostManager.Tabs}"
                   ItemContainerStyle="{StaticResource CompareMenuItemStyle}">
         </MenuItem>
         <MenuItem Header="Synchronize Scrollbars"
                   IsCheckable="True"
-                  IsChecked="{Binding SelectedTab.IsScrollbarSynchronized}">
+                  IsChecked="{Binding DocumentHostManager.SelectedTab.IsScrollbarSynchronized}">
         </MenuItem>
         <Separator/>
         <MenuItem Header="_Close"
                   Command="{Binding Path=CloseTabCommand}"
+                  CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=ContextMenu}, Path=PlacementTarget.DataContext}"
                   InputGestureText="Ctrl + F4">
             <MenuItem.Icon>
                 <Image Source="/Views/Images/Menu/cancel_16x16.png"/>
@@ -62,7 +63,8 @@
             </MenuItem.Icon>
         </MenuItem>
         <MenuItem Header="Close All _But This"
-                  Command="{Binding Path=CloseAllButThisTabCommand}">
+                  Command="{Binding Path=CloseAllButThisTabCommand}"
+                  CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=ContextMenu}, Path=PlacementTarget.DataContext}">
             <MenuItem.Icon>
                 <Image Source="/Views/Images/Menu/cancel_16x16.png"/>
             </MenuItem.Icon>
