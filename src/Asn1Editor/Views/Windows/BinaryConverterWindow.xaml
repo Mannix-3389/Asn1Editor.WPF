@@ -7,11 +7,12 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance vm:BinaryConverterVM}"
+        Title="Binary Converter"
         Background="{StaticResource PanelBackgroundBrush}"
         FontSize="{Binding UserSettings.FontSize}"
-        Title="Binary Converter"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterOwner"
+        Icon="/Views/Images/Menu/converter_16x16.png"
         Height="500"
         Width="650">
     <Window.InputBindings>
@@ -19,7 +20,7 @@
         <KeyBinding Modifiers="Ctrl" Key="O" Command="{Binding OpenCommand}"/>
         <KeyBinding Modifiers="Ctrl" Key="P" Command="{Binding PrintCommand}"/>
     </Window.InputBindings>
-    <DockPanel>
+    <DockPanel FocusManager.FocusedElement="{Binding ElementName=txt}">
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="File">
                 <MenuItem Header="Open" Command="{Binding OpenCommand}" InputGestureText="Ctrl + O">
@@ -56,7 +57,7 @@
                 <Separator/>
                 <MenuItem Header="Clear" Command="{Binding ClearCommand}">
                     <MenuItem.Icon>
-                        <Image Source="../Images/Menu/eraser_16x16.png"/>
+                        <Image Source="../Images/Menu/eraser_16x16.png" Width="16"/>
                     </MenuItem.Icon>
                 </MenuItem>
             </MenuItem>
@@ -82,6 +83,9 @@
                 </Button>
                 <Button Command="ApplicationCommands.Paste" ToolTip="Paste (Ctrl + V)">
                     <Image Source="../Images/Menu/paste_16x16.png"/>
+                </Button>
+                <Button Command="{Binding ClearCommand}" ToolTip="Clear content">
+                    <Image Source="../Images/Menu/eraser_16x16.png" Width="16"/>
                 </Button>
             </ToolBar>
             <ToolBar>

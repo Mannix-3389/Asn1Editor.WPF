@@ -86,13 +86,14 @@ public partial class App {
             .RegisterSingleton<ISplashScreenVM, SplashScreenVM>()
             .RegisterSingleton<IMainWindowVM, MainWindowVM>()
             .RegisterSingleton<AsnDocumentHostManager>()
+            .RegisterSingleton<AsnDocumentFileService>()
             .RegisterType<IHasAsnDocumentTabs, AsnDocumentHostManager>()
             .RegisterSingleton<IOidDbManager, OidDbManager>()
             .RegisterType<ITextViewerVM, TextViewerVM>()
             .RegisterType<IAsnValueEditorVM, AsnValueEditorVM>()
             .RegisterType<IOidEditorVM, OidEditorVM>()
             .RegisterType<INewAsnNodeEditorVM, NewAsnNodeEditorVM>()
-            .RegisterType<ITreeCommands, TreeViewCommands>()
+            .RegisterSingleton<ITreeCommands, TreeViewCommands>()
             .RegisterInstance(_options);
     }
 }
